@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Elastic Search amb python</title>
+    <meta charset="utf-8">
+    <style>
+      @import url(https://fonts.googleapis.com/css?family=Yanone+Kaffeesatz);
+      @import url(https://fonts.googleapis.com/css?family=Droid+Serif:400,700,400italic);
+      @import url(https://fonts.googleapis.com/css?family=Ubuntu+Mono:400,700,400italic);
+
+      body { font-family: 'Droid Serif'; }
+      h1, h2, h3 {
+        font-family: 'Yanone Kaffeesatz';
+        font-weight: normal;
+      }
+      .remark-code, .remark-inline-code { font-family: 'Ubuntu Mono'; }
+      .inverse {
+        background: #272822;
+        color: #777872;
+        text-shadow: 0 0 20px #333;
+      }
+      .inverse h1, .inverse h2 {
+        color: #f3f3f3;
+        line-height: 0.8em;
+      }
+    </style>
+  </head>
+  <body>
+    <textarea id="source">
+class: center, middle
+
+# Elastic Search amb Python
+
+---
+## Com arribo a usar Elastic Search
+
+- Whoosh: Llibreria python per indexar
+- Problemes de rendiment amb grans volums de dades i concurrència
+- Faig una prova de concepte amb Elastic Search i el rendiment es impresionantment millor sense fer cap ajust
+
+---
+
+## Què es Elastic Search ?
+
+- Es un motor de cerca basat en Lucense.
+- API Http simple
+- Gran rendiment
+- Distribuit
+- Suport geogràfic
+
+---
+
+## Conceptes
+
+- Document: Unitat bàsica de dades que pot ser enmagatzemada en format clau valor,sense esquema
+- Index: Col·lecció de documents
+
+---
+
+## Paquet python
+
+- Tot i que la API de Elastic Search es molt simple
+
+    [Exemple per elimnar un index](https://www.elastic.co/guide/en/elasticsearch/reference/current/indices-delete-index.html)
+
+- Existeix un paquet de python per accedir a la API de Elastic Search
+
+    [https://elasticsearch-py.readthedocs.io/en/master/](https://elasticsearch-py.readthedocs.io/en/master/)
+
+---
+
+## Indexat
+
+
+``` python
+from elasticsearch import Elasticsearch
+
+#Inicialitzacio del ES
+
+es = Elasticsearch()
+
+# Indexem un document
+es.index(
+    # Index en el que indexem el document
+    index="presentacio",
+    # Tipus de document
+    doc_type="doc",
+    # Document a indexar
+    body={"test":"ok"},
+    id=1234
+)
+```
+Podem  actualitzar les dades cridant un altre cop la funció index
+???
+- result: indica si el document s'ha creat o s'ha actualitzat
+- version: indica la versio del document
+---
+## Eliminar document
+
+- Podem elimninar un document indexat
+
+``` python
+es.delete(
+    index="presentacio",
+    doc_type="doc",
+    id=1234,
+    # Fa que el canvi es repliqui inmediatament
+    refresh='true'
+    )
+```
+???
+- El parametre refresh fa que es forçi el canvi inmediatament al servidor
+---
+## Consultes
+
+* Que continguin les paraules `avinguda` i `frança`
+
+``` python
+# Codi consulta
+es.search(
+    index="presentacio",
+    doc_type="doc",
+    body={
+        'query': {
+            'match': {
+                'name': {
+                    'query': "avinguda frança",
+                    'operator': 'and'
+                }
+            }
+        }
+    })
+```
+???
+- _score indica la puntuacio del document
+- max_score el maxim de tota la cerca
+
+---
+## Consultes
+
+* Que continguin les paraules `girona` o `frança`
+
+``` python
+# Codi consulta
+es.search(
+    index="presentacio",
+    doc_type="doc",
+    body={
+        'query': {
+            'match': {
+                'name': {
+                    'query': "girona frança",
+                    'operator': 'or'
+                }
+            }
+        }
+    })
+```
+---
+
+## Consulta amb paginació
+
+``` python
+# Iniciem la consulta amb paginacio
+pag_1 = es.search(
+    index="presentacio",
+    doc_type="doc",
+    # Temps que s'enmagatzema la paginacio (10 minuts)
+    scroll='10m',
+    # Mida de la pagina
+    size=10,
+    body={
+        'query': {
+            'match': {
+                'name': {
+                    'query': "carrer",
+                    'operator': 'and'
+                }
+            }
+        }
+    })
+
+```
+
+---
+## Consulta amb paginació
+
+* Passant de pagina
+
+``` python
+# Recuperem d'id del scroll
+scroll_id = pag_1["_scroll_id"]
+# Numero total de resultats
+total = pag_1['hits']['total']
+# Avançem pagina
+pag_seg = es.scroll(
+    scroll_id=scroll_id,
+    scroll='2m'
+)
+
+```
+---
+
+## Consulta amb suggerencies
+
+* Podem defiinr un corrector per tal que quan busquem un camp i no tinguem resultats ens faci suggerencies
+
+``` python
+es.search(
+    index="presentacio",
+    doc_type="doc",
+    body={
+        'query': {
+            'match': {
+                'name': {
+                    'query': "carrer bracelona"
+                }
+            }
+        },
+         "suggest" : {
+            "my-suggestion" : {
+                "text" : "carrer bracelona",
+                "phrase" : {
+                    "field" : "name"
+                }
+            }
+        }
+    })
+```
+???
+- Explicar que es poden fer suggerencies  sense la consulta
+---
+
+## Filtre: Asciifolding
+
+* Ascii folding, cerca sense accents
+* Com que "marques" no te accent no retorna resultats
+
+``` python
+es.search(
+    index="presentacio",
+    doc_type="doc",
+    body={
+        'query': {
+            'match': {
+                'name': {
+                    'query': "marques",
+                }
+            }
+        }
+    })
+```
+---
+## Filtre: Asciifolding
+
+``` python
+es.indices.create("presentacio")
+# Tanquem l'index
+es.indices.close("presentacio")
+# Configurem l'asciifolding
+es.indices.put_settings(
+    index="presentacio",
+    body={
+        "settings": {
+            "analysis": {
+                "analyzer": {
+                    "default": {
+                        "tokenizer": "standard",
+                        "filter": ["lowercase", "my_ascii_folding"]
+                    }
+                },
+                "filter": {
+                    "my_ascii_folding": {
+                        "type": "asciifolding",
+                        "preserve_original": True
+                    }
+                }
+            }
+        }
+    })
+
+# Obrim l'index
+es.indices.open("presentacio")
+
+```
+---
+## Filtre: Asciifolding
+
+* Amb l'asciifolding activat obtenim resultats
+
+``` python
+es.search(
+    index="presentacio",
+    doc_type="doc",
+    body={
+        'query': {
+            'match': {
+                'name': {
+                    'query': "marques",
+                }
+            }
+        }
+    })
+```
+
+---
+
+## Mappings
+
+* No es poden aplicar mappings en indexs on ja hi ha dades
+
+``` python
+# Eliminem l'index
+es.indices.delete(index="presentacio")
+# Tornem a crear l'index
+es.indices.create(index="presentacio")
+```
+---
+## Mappings
+* Indiquen com son guardades i indexades les dades
+
+``` python
+# Indiquem que el camp type es de tipus keyworkd i si les dades son nul·les
+# les tracti com si tingues per valor "altres"
+es.indices.put_mapping(
+    index="presentacio",
+    doc_type="doc",
+    body={
+        "doc": {
+            "properties": {
+                "type": {
+                    "type": "keyword",
+                    "null_value": "altres"
+                }
+            }
+        }
+    })
+```
+---
+## Mappings
+
+* Indexem un document sense dades de type
+
+``` python
+es.index(
+    # Index en el que indexem el document
+    index="presentacio",
+    # Tipus de document
+    doc_type="doc",
+    # Document a indexar
+    # Atencio, no es el mateix que no existeixi el camp que no que
+    # el valor sigui None
+    body={
+        "test":"ok",
+        "type": None
+    },
+    id=1234
+)
+```
+---
+## Mappings
+
+* Cerquem documents amb el camp type altres
+
+```python
+es.search(
+    index="presentacio",
+    doc_type="doc",
+    body={
+        'query': {
+            'match': {
+                'type': {
+                    'query': "altres"
+                }
+            }
+        }
+    })
+
+```
+---
+
+## Consulta de geometria
+
+* Preparem el mapping per indicar que el camp geom es una geometria
+
+``` python
+es.indices.put_mapping(
+    index="presentacio",
+    doc_type="doc",
+    body={
+        "doc": {
+            "properties": {
+                "geom": {
+                    "type": "geo_shape",
+                }
+            }
+        }
+    })
+```
+---
+## Consulta de geometria
+
+* Fem una cerca de tots els elements que estan dins de un bounding box
+
+``` python
+es.search(
+    index="presentacio",
+    body={
+    "query":{
+        "bool": {
+            "must": { "match_all": {} },
+            "filter": {
+                "geo_shape": {
+                    "geom": {
+                        "shape": {
+                            "type": "envelope",
+                            "coordinates" :
+                                [[2.82793, 41.96718],
+                                [2.84671, 41.96152]]
+                        },
+                        "relation": "within"
+                    }
+                }
+            }
+        }
+    }
+})
+
+```
+---
+## Autocomplete
+
+* Ens permet completar la cerca mentre escrivim
+
+``` python
+es.indices.put_mapping(
+    index="presentacio",
+    doc_type="doc",
+    body={
+        "doc" : {
+            "properties" : {
+                "suggest" : {
+                    "type" : "completion"
+                },
+                "name" : {
+                    "type": "text"
+                }
+            }
+        }
+    }
+)
+
+```
+---
+## Autocomplete
+
+* Fem una cerca
+
+``` python
+es.search(
+    index="presentacio",
+    doc_type="doc",
+    body={
+    "query": {
+        "match": {
+            "name": "carrer de"
+        }
+    }
+})
+```
+---
+
+## Gestio de indexs i Elastic search
+
+- Com hem vist de de python podem crear i eliminar indexs, pero tambe podem veure com esta el servei
+
+``` python
+# Eliminem l'index
+es.indices.delete(index="presentacio")
+# Tornem a crear l'index
+es.indices.create(index="presentacio")
+# Obrir index
+es.indices.open(index="presentacio")
+# Tancar index
+es.indices.close(index="presentacio")
+# Estat del servei
+es.cluster.health()
+
+
+```
+
+    </textarea>
+    <script src="https://remarkjs.com/downloads/remark-latest.min.js">
+    </script>
+    <script>
+      var slideshow = remark.create();
+    </script>
+  </body>
+</html>
